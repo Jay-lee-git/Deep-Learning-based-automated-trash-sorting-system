@@ -47,7 +47,11 @@ class DynamixelControl:
             print("%s" % self.packetHandler_list[0].getTxRxResult(dxl_comm_result))
         elif dxl_error != 0:
             print("%s" % self.packetHandler_list[0].getRxPacketError(dxl_error))
-
+    
+    def kill_process(self):
+        for i in range(0, self.DEVICENUM):
+            dxl_comm_result, dxl_error = self.packetHandler_list[i].write1ByteTxRx(self.portHandler_list[i], self.DXL_ID_list [i], self.ADDR_TORQUE_ENABLE, self.TORQUE_DISABLE)
+            self.portHandler_list[i].closePort()
     
 def angle_to_pos(angle):
     return int(4095/365 * angle)
@@ -70,7 +74,7 @@ def main():
     dynamixel.open_port_and_baud()
     while True:
         key_input = ord(getch())
-        if key_input == 27:
+        if key_input == ord('q'):
             break
         elif key_input == ord('w'):
             dxl_goal_position[3] -= angle_to_pos(5)
@@ -82,6 +86,9 @@ def main():
             dxl_goal_position[0] -= angle_to_pos(5)
         
         dynamixel.move_to_goal(dxl_goal_position)
+        
+    dynamixel.kill_process()
+
 
 if __name__ == '__main__':
     main()
