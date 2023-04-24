@@ -3,6 +3,7 @@ import sys, tty, termios
 from ikpy.chain import Chain
 from ikpy.link import OriginLink, URDFLink
 from collections import deque
+import numpy as np
 
 open_maipulator = Chain(name='test_arm', links=[
     OriginLink(),
@@ -96,9 +97,6 @@ class DynamixelControl:
         for i in range(0, self.DEVICENUM):
             dxl_comm_result, dxl_error = self.packetHandler_list[i].write1ByteTxRx(self.portHandler_list[i], self.DXL_ID_list [i], self.ADDR_TORQUE_ENABLE, self.TORQUE_DISABLE)
             self.portHandler_list[i].closePort()
-    # def solve_ik(self, dxl_comm_result):
-    #     print(dxl_comm_result)
-
 
 
 def angle_to_pos(angle):
@@ -118,63 +116,52 @@ def getch():
     return ch
     
 
-import numpy as np
-
-
-# def list_to_angle(arr):
-    # return [pos_to_angle(i) for i in arr]
-
-def list_to_angle(arr):
-    return [angle_to_pos((pos_to_angle(i)*180/np.pi)+180) for i in arr]
-
-
 def main():
-    # with open("output.csv", "w", newline="") as csvfile:
-    mean_pos = [deque(), deque(), deque(), deque(), deque()]
+    mean_pos = [deque() for _ in range(5)]
     target_vector = [0.025605  , 0., 0.02051485]
     dxl_goal_position = [angle_to_pos(180), angle_to_pos(170), angle_to_pos(180), angle_to_pos(180), angle_to_pos(50)]
     dynamixel = DynamixelControl([11, 12, 13, 14, 15])
     dynamixel.open_port_and_baud()
+    grab_flag = False
     while True:
 
-        tmp_goal = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
-        print([abs(dxl_goal_position[i]- tmp_goal[i]) for i in range(5)])
-        for i in range(5):
-            mean_pos[i].append(tmp_goal[i])
-
+        target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
+        for i in range(1,4):
+            mean_pos[i].append(target_angle[i])
             if len(mean_pos[i]) > 5:
                 mean_pos[i].popleft()
 
             dxl_goal_position[i] = sum(mean_pos[i])//len(mean_pos[i])
 
+        
         key_input = ord(getch())
-        if key_input == ord('q'):
+        if key_input == 27:
             break
-        elif key_input == ord('w'):
-            dxl_goal_position[3] -= angle_to_pos(5)
-        elif key_input == ord('s'):
-            dxl_goal_position[3] += angle_to_pos(5)
-        elif key_input == ord('a'):
+        elif key_input == ord('e'):
+            if grab_flag:
+                dxl_goal_position[4] = angle_to_pos(200)
+                grab_flag = False
+            else:
+                dxl_goal_position[4] = angle_to_pos(100)
+                grab_flag = True
+
+        elif key_input == ord('c'):
             dxl_goal_position[0] += angle_to_pos(5)
-        elif key_input == ord('d'):
+        elif key_input == ord('z'):
             dxl_goal_position[0] -= angle_to_pos(5)
-        elif key_input == ord('j'):
+        elif key_input == ord('a'):
             target_vector[0] += 0.0005
-        elif key_input == ord('l'):
+        elif key_input == ord('d'):
             target_vector[0] -= 0.0005
 
-        elif key_input == ord('i'):
+        elif key_input == ord('w'):
             target_vector[2] += 0.0005
-        elif key_input == ord('k'):
+        elif key_input == ord('s'):
             target_vector[2] -= 0.0005
         
-        # if sum(safety_flag):   
         dynamixel.move_to_goal(dxl_goal_position)
-        # print(dxl_goal_position)
-
-     
-
     dynamixel.kill_process()
+
 
 
 if __name__ == '__main__':
