@@ -118,8 +118,8 @@ def getch():
 
 def main():
     mean_pos = [deque() for _ in range(5)]
-    target_vector = [0.025605  , 0., 0.02051485]
-    dxl_goal_position = [angle_to_pos(180), angle_to_pos(170), angle_to_pos(180), angle_to_pos(180), angle_to_pos(50)]
+    target_vector = [0.025  , 0., 0.02]
+    dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(270), angle_to_pos(50)]
     dynamixel = DynamixelControl([11, 12, 13, 14, 15])
     dynamixel.open_port_and_baud()
     grab_flag = False
@@ -139,7 +139,7 @@ def main():
             break
         elif key_input == ord('e'):
             if grab_flag:
-                dxl_goal_position[4] = angle_to_pos(200)
+                dxl_goal_position[4] = angle_to_pos(240)
                 grab_flag = False
             else:
                 dxl_goal_position[4] = angle_to_pos(100)
@@ -150,15 +150,18 @@ def main():
         elif key_input == ord('z'):
             dxl_goal_position[0] -= angle_to_pos(5)
         elif key_input == ord('a'):
-            target_vector[0] += 0.0005
+            target_vector[0] += 0.001
         elif key_input == ord('d'):
-            target_vector[0] -= 0.0005
+            target_vector[0] -= 0.001
 
         elif key_input == ord('w'):
-            target_vector[2] += 0.0005
+            target_vector[2] += 0.001
         elif key_input == ord('s'):
-            target_vector[2] -= 0.0005
+            target_vector[2] -= 0.001
         
+        elif key_input == ord('r'):
+            dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(270), angle_to_pos(50)]
+            mean_pos = [deque() for _ in range(5)]
         dynamixel.move_to_goal(dxl_goal_position)
     dynamixel.kill_process()
 
