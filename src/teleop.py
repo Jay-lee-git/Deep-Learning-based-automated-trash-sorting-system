@@ -124,13 +124,17 @@ def ZOH(arr1, arr2):
 
 
 def main():
-    target_vector = [0.025  , 0., 0.02]
-    dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(167), angle_to_pos(50)]
+    # target_vector = [0.025  , 0., 0.02]
+    target_vector = [0.01399388  , 0.0, 0.00770011]
+    # dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(167), angle_to_pos(50)]
+    dxl_goal_position = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
+
     dynamixel = DynamixelControl([11, 12, 13, 14, 15])
     dynamixel.open_port_and_baud()
     grab_flag = False
 
     while True:
+        print(open_maipulator.forward_kinematics([(pos_to_angle(dxl_goal_position[i])-180)*np.pi/180 for i in range(5)]))
         key_input = ord(getch())
         if key_input == 27:
             break
@@ -158,10 +162,11 @@ def main():
             dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(270), angle_to_pos(160)]
         dynamixel.move_to_goal(dxl_goal_position)
 
-
         target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
         
-        dxl_goal_position = ZOH(dxl_goal_position, target_angle)
+        # dxl_goal_position = ZOH(dxl_goal_position, target_angle)
+        for i in range(1,4):
+            dxl_goal_position[i] = target_angle[i]
 
         test = []
         for i in range(1, 4):
