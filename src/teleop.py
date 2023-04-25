@@ -100,10 +100,10 @@ class DynamixelControl:
 
 
 def angle_to_pos(angle):
-    return int(4095/365 * angle)
+    return int(4095/360 * angle)
 
 def pos_to_angle(pos):
-    return int(pos*365 /4095)
+    return int(pos*360 /4095)
     
 def getch():
     fd = sys.stdin.fileno()
@@ -114,26 +114,23 @@ def getch():
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     return ch
-    
+
+def ZOH(arr1, arr2):
+    for i in range(1, 4):
+        if abs(arr1[i] - arr2[i]) > 400:
+            print('joint_limit')
+            return arr1
+    return arr2
+
 
 def main():
-    mean_pos = [deque() for _ in range(5)]
     target_vector = [0.025  , 0., 0.02]
-    dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(270), angle_to_pos(50)]
+    dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(167), angle_to_pos(50)]
     dynamixel = DynamixelControl([11, 12, 13, 14, 15])
     dynamixel.open_port_and_baud()
     grab_flag = False
+
     while True:
-
-        target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
-        for i in range(1,4):
-            mean_pos[i].append(target_angle[i])
-            if len(mean_pos[i]) > 5:
-                mean_pos[i].popleft()
-
-            dxl_goal_position[i] = sum(mean_pos[i])//len(mean_pos[i])
-
-        
         key_input = ord(getch())
         if key_input == 27:
             break
@@ -153,16 +150,26 @@ def main():
             target_vector[0] += 0.001
         elif key_input == ord('d'):
             target_vector[0] -= 0.001
-
         elif key_input == ord('w'):
             target_vector[2] += 0.001
         elif key_input == ord('s'):
             target_vector[2] -= 0.001
-        
         elif key_input == ord('r'):
-            dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(270), angle_to_pos(50)]
-            mean_pos = [deque() for _ in range(5)]
+            dxl_goal_position = [angle_to_pos(180), angle_to_pos(160), angle_to_pos(167), angle_to_pos(270), angle_to_pos(160)]
         dynamixel.move_to_goal(dxl_goal_position)
+
+
+        target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
+        
+        dxl_goal_position = ZOH(dxl_goal_position, target_angle)
+
+        test = []
+        for i in range(1, 4):
+            test.append(dxl_goal_position[i] - target_angle[i])
+        print(dxl_goal_position , target_angle)
+        print(test)
+
+        
     dynamixel.kill_process()
 
 
