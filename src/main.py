@@ -175,8 +175,7 @@ def predict_result(model, input_image):
 
     return detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name
 # detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name 
-def draw_detect_object(input_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage):
-    goal_point = (480,320)
+def draw_detect_object(input_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point):
     cv2.circle(input_image, goal_point, radius=5, color=(0, 0, 255), thickness=-1)
     cv2.circle(input_image, (int((x1+x2)/2), int((y1+y2)/2)), radius=5, color=(255, 0, 0), thickness=-1)
 
@@ -209,7 +208,8 @@ def main():
     dynamixel = DynamixelControl([11, 12, 13, 14, 15])
     dynamixel.open_port_and_baud()
     grab_flag = False
-    goal_point = (420,240) 
+    goal_point = (420,240)
+    target_point = goal_point
     while True:
         print(open_maipulator.forward_kinematics([(pos_to_angle(dxl_goal_position[i])-180)*np.pi/180 for i in range(5)]))
         color_image, _ = get_realsense_color_depth_frame(pipeline)
@@ -228,10 +228,15 @@ def main():
             if len(mid_point_list[0]) > average_step_size:
                 mid_point_list[0].popleft()
                 mid_point_list[1].popleft()
-
-
+            target_point = draw_detect_object(color_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point)
 
         cv2.imshow('Color frame', color_image)
+
+        if (target_point[0] - goal_point[0]) > 10:
+            dxl_goal_position[0] -= angle_to_pos(0.5)
+        elif (target_point[0] - goal_point[0]) < -10:
+            dxl_goal_position[0] += angle_to_pos(0.5)
+        
 
         key_input = cv2.waitKey(1)
         if key_input == 27:
