@@ -14,7 +14,6 @@ open_maipulator = Chain(name='test_arm', links=[
     URDFLink(
       
       name="link0",
-      # origin_translation=[0.012, 0, 0.017],
       origin_translation=[0, 0, 0.003],
       origin_orientation=[0, 0, 0],
       rotation=[0, 1, 0],
@@ -23,7 +22,6 @@ open_maipulator = Chain(name='test_arm', links=[
     ),     
     URDFLink(
       name="link1",
-      # origin_translation=[0.012, 0, 0.017],
       origin_translation=[0, 0, 0.013],
       origin_orientation=[0, 0, 0],
       rotation=[0, 1, 0],
@@ -32,7 +30,6 @@ open_maipulator = Chain(name='test_arm', links=[
     ),
     URDFLink(
       name="link2",
-      # origin_translation=[0.012, 0, 0.017],
       origin_translation=[0.013, 0, 0],
       origin_orientation=[0, 0, 0],
       rotation=[0, 1, 0],
@@ -41,7 +38,6 @@ open_maipulator = Chain(name='test_arm', links=[
     ),    
     URDFLink(
       name="link3",
-      # origin_translation=[0, 0, 0.0595],
       origin_translation=[0.013, 0, 0],
       origin_orientation=[0, 0, 0],
       rotation=[0, 1, 0],
@@ -106,8 +102,6 @@ class OpenManipulator():
             self.portHandler_list[i].closePort()
 
     def solve_ik(self, target_vector):
-        # print([angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi])
-        # print([angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi][1:4])
         return  [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi][1:4]
     
     def reboot(self):        
@@ -128,12 +122,77 @@ class OpenManipulator():
             print("%s" % self.packetHandler_list[i].getTxRxResult(dxl_comm_result))
         elif dxl_error != 0:
             print("%s" % self.packetHandler_list[i].getRxPacketError(dxl_error))
-            # [RxPacketError] Hardware error occurred. Check the error at Control Table (Hardware Error Status)! (ID: 15)
         else:
             print("Dynamixel has been successfully connected")
     
 
+    def move_grab_point(self, target_vector, dxl_goal_position):
+        target_vector[0] += 0.015
+        dxl_goal_position[1:4] = self.solve_ik(target_vector)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(1)
+        # grab
+        dxl_goal_position[4] = angle_to_pos(100)
+        self.move_to_goal(dxl_goal_position)
 
+
+    def dump(self, dxl_goal_position, angle):
+        self.mid(dxl_goal_position)
+        time.sleep(0.5)
+
+        dxl_goal_position[0] = angle_to_pos(180+angle)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(0.5)
+
+        target_vector = [0.030716  , 0.0, 0.023171]
+        dxl_goal_position[1:4] = self.solve_ik(target_vector)
+        self.move_to_goal(dxl_goal_position)
+
+        dxl_goal_position[4] = angle_to_pos(100)
+        time.sleep(1)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(1)
+
+    def dump_paper(self, dxl_goal_position, angle):
+        self.mid(dxl_goal_position)
+        time.sleep(0.5)
+
+        dxl_goal_position[0] = angle_to_pos(180-90)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(0.5)
+
+        target_vector = [0.030716  , 0.0, 0.023171]
+        dxl_goal_position[1:4] = self.solve_ik(target_vector)
+        self.move_to_goal(dxl_goal_position)
+
+        dxl_goal_position[4] = angle_to_pos(100)
+        time.sleep(1)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(1)
+        
+    def mid(self, dxl_goal_position):
+        target_vector = [0.01399388  , 0.0, 0.01770011]
+        dxl_goal_position[0] = angle_to_pos(180)
+        dxl_goal_position[1:4] = self.solve_ik(target_vector)
+        self.move_to_goal(dxl_goal_position)
+        return target_vector
+    
+    def home(self, dxl_goal_position):
+        target_vector = [0.01399388  , 0.0, 0.00770011]
+        dxl_goal_position[0] = angle_to_pos(180)
+        dxl_goal_position[1:4] = self.solve_ik(target_vector)
+        self.move_to_goal(dxl_goal_position)
+        return target_vector    
+    
+    def grab_open(self, dxl_goal_position):
+        dxl_goal_position[4] = angle_to_pos(100)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(2)
+
+    def grab_close(self, dxl_goal_position):
+        dxl_goal_position[4] = angle_to_pos(280)
+        self.move_to_goal(dxl_goal_position)
+        time.sleep(2)
 
 class realsense():
     def __init__(self):
@@ -214,24 +273,33 @@ def moving_average(stack, element, step_size):
     return sum(stack)/step_size
 
 def get_depth(x1, y1, x2, y2, depth_frame):
-    # print(depth_frame.get_units())
-    # print('depth', int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units()))
     return int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units())
 
+def target_lock(deque, dx):
+    deque.append(dx)
+
+    if len(deque) > 10:
+        deque.popleft()
+    
+    if abs(sum(deque))//10 < 5 and len(deque) == 10:
+        print(deque)
+        return True
 
 
 def main():
-
     camera = realsense()
     openmanipulator = OpenManipulator([11, 12, 13, 14, 15])
     openmanipulator.open_port_and_baud()
 
-    model = YOLO('../rsc/best_yolo8v_trash_n.pt')
+    model = YOLO('../rsc/best_yolo8v_trash_x.pt')
 
     target_vector = [0.01399388  , 0.0, 0.00770011]
     dxl_goal_position = [angle_to_pos(180), *openmanipulator.solve_ik(target_vector), angle_to_pos(100)]
     mid_point_list = [deque() for _ in range(2)]
     average_step_size = 5
+    target_lock_arr = deque()
+    target_lock_bool = False
+    target_lock_name = None
 
     grab_flag = False
     goal_point = (420,240)
@@ -244,20 +312,57 @@ def main():
         frame_height, frame_width, _ = color_image.shape
         frame_mid_point = (frame_width//2, frame_height//2)
 
-
         # predict
         detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name = predict_result(model, color_image)
 
-        if detect_ob_cordinate:
+        if detect_ob_cordinate: #and not target[0]:
             x1, y1, x2, y2 = map(int, detect_ob_cordinate[0])
-            moving_average(mid_point_list[0], frame_mid_point[0] - int((x1+x2)/2), average_step_size)
+            moving_average(mid_point_list[0], (frame_mid_point[0] - int((x1+x2)/2)), average_step_size)
             target_point = draw_detect_object(color_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point)
-
+            dx = target_point[0] - goal_point[0]
             # move to target
-            if (target_point[0] - goal_point[0]) > 10:
+            if dx > 10:
                 dxl_goal_position[0] -= angle_to_pos(0.5)
-            elif (target_point[0] - goal_point[0]) < -10:
+            elif dx < -10:
                 dxl_goal_position[0] += angle_to_pos(0.5)
+            if target_lock(target_lock_arr, dx):
+                target_lock_bool = True
+                target_lock_name = detect_name[detect_ob_num[0]]
+                print(target_lock_name)
+            
+        if target_lock_bool:
+            print('================== lock on ==================')
+            if target_lock_name == 'pet':
+                openmanipulator.move_grab_point(target_vector, dxl_goal_position)
+                openmanipulator.grab_close(dxl_goal_position)
+                openmanipulator.dump(dxl_goal_position, -50)
+                openmanipulator.grab_open(dxl_goal_position)
+                target_vector = openmanipulator.home(dxl_goal_position)
+            
+            elif target_lock_name == 'paper':
+                openmanipulator.move_grab_point(target_vector, dxl_goal_position)
+                openmanipulator.grab_close(dxl_goal_position)
+                openmanipulator.dump(dxl_goal_position, -90)
+                openmanipulator.grab_open(dxl_goal_position)
+                target_vector = openmanipulator.home(dxl_goal_position)   
+
+            elif target_lock_name == 'can':
+                openmanipulator.move_grab_point(target_vector, dxl_goal_position)
+                openmanipulator.grab_close(dxl_goal_position)
+                openmanipulator.dump(dxl_goal_position, 50)
+                openmanipulator.grab_open(dxl_goal_position)
+                target_vector = openmanipulator.home(dxl_goal_position)                   
+
+            elif target_lock_name == 'glass_bottle':
+                openmanipulator.move_grab_point(target_vector, dxl_goal_position)
+                openmanipulator.grab_close(dxl_goal_position)
+                openmanipulator.dump(dxl_goal_position, 90)
+                openmanipulator.grab_open(dxl_goal_position)
+                target_vector = openmanipulator.home(dxl_goal_position)
+
+            target_lock_bool = False
+            target_lock_arr = deque()
+
 
         cv2.imshow('Color frame', color_image)
         key_input = cv2.waitKey(1)
@@ -266,51 +371,41 @@ def main():
         elif key_input == ord('e'):
             
             if grab_flag:
-                print(dxl_goal_position)
-                dxl_goal_position[4] = angle_to_pos(240)
+                openmanipulator.grab_close(dxl_goal_position)
                 grab_flag = False
             else:
-                dxl_goal_position[4] = angle_to_pos(100)
+                openmanipulator.grab_open(dxl_goal_position)
                 grab_flag = True
-        elif key_input == ord('c'):
-            dxl_goal_position[0] += angle_to_pos(10)
-        elif key_input == ord('z'):
-            dxl_goal_position[0] -= angle_to_pos(10)
-        elif key_input == ord('a'):
-            target_vector[0] += 0.001
-        elif key_input == ord('d'):
-            target_vector[0] -= 0.001
-        elif key_input == ord('w'):
-            target_vector[2] += 0.001
-        elif key_input == ord('s'):
-            target_vector[2] -= 0.001
-        elif key_input == ord('r'):
-            target_vector = [0.01399388  , 0.0, 0.00770011]
-            dxl_goal_position[0] = angle_to_pos(180)
-        elif key_input == ord('t'):
-            openmanipulator.reboot()
+        # elif key_input == ord('c'):
+        #     dxl_goal_position[0] += angle_to_pos(10)
+        # elif key_input == ord('z'):
+        #     dxl_goal_position[0] -= angle_to_pos(10)
+        # elif key_input == ord('a'):
+        #     target_vector[0] += 0.001
+        #     # 15번 = 0.015
+        # elif key_input == ord('d'):
+        #     target_vector[0] -= 0.001
+        # elif key_input == ord('w'):
+        #     target_vector[2] += 0.001
+        # elif key_input == ord('s'):
+        #     target_vector[2] -= 0.001
+        # elif key_input == ord('r'):
+        #     target_vector = [0.01399388  , 0.0, 0.00770011]
+        #     dxl_goal_position[0] = angle_to_pos(180)
+        # elif key_input == ord('t'):
+        #     openmanipulator.reboot()
 
-        # dumping plastic
-        elif key_input == ord('p'):
-            dxl_goal_position[0] = angle_to_pos(180+90)
-            openmanipulator.move_to_goal(dxl_goal_position)
-            print(dxl_goal_position)
-            time.sleep(0.5)
-            target_vector = [0.030716  , 0.0, 0.023171]
-            dxl_goal_position[1:4] = openmanipulator.solve_ik(target_vector)
-            openmanipulator.move_to_goal(dxl_goal_position)
+        # # dumping plastic
+        # elif key_input == ord('p'):
+        #     openmanipulator.move_grab_point(target_vector, dxl_goal_position)
+        #     openmanipulator.grab_close(dxl_goal_position)
+        #     openmanipulator.dump(dxl_goal_position, 90)
+        #     openmanipulator.grab_open(dxl_goal_position)
+        #     target_vector = openmanipulator.home(dxl_goal_position)
 
-            dxl_goal_position[4] = angle_to_pos(100)
-            time.sleep(1)
-            openmanipulator.move_to_goal(dxl_goal_position)
-            time.sleep(1)
-            target_vector = [0.01399388  , 0.0, 0.00770011]
-            dxl_goal_position[0] = angle_to_pos(180)
-            
         dxl_goal_position[1:4] = openmanipulator.solve_ik(target_vector)
         openmanipulator.move_to_goal(dxl_goal_position)
         
-    print(dxl_goal_position)
     openmanipulator.kill_process()
     camera.off()
 
