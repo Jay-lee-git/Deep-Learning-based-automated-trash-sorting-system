@@ -96,6 +96,9 @@ class OpenManipulator():
             print("%s" % self.packetHandler_list[0].getTxRxResult(dxl_comm_result))
         elif dxl_error != 0:
             print("%s" % self.packetHandler_list[0].getRxPacketError(dxl_error))
+            # [RxPacketError] Hardware error occurred. Check the error at Control Table (Hardware Error Status)! (ID: 15)
+            print('rebooting.....')
+            self.reboot()
     
     def kill_process(self):
         for i in range(0, self.DEVICENUM):
@@ -103,21 +106,32 @@ class OpenManipulator():
             self.portHandler_list[i].closePort()
 
     def solve_ik(self, target_vector):
-        return [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi][1:4]
+        # print([angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi])
+        # print([angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi][1:4])
+        return  [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi][1:4]
     
-# dxl_goal_position[i] = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
-    # def increment_array(self, start_array, end_array, time_period):
-    #     rate_of_change = [(end_array[i] - start_array[i]) / time_period for i in range(len(start_array))]
-    #     current_array = start_array.copy()
-    #     increment_time = time_period / 5
-    #     for i in range(5):
-    #         current_array = [current_array[j] + rate_of_change[j] * increment_time for j in range(len(current_array))]
-    #         print(current_array)
-    #         time.sleep(increment_time)
-    #         target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(current_array)*180/np.pi]
-    #         for i in range(1, 4):      
-    #             self.move_to_goal(target_angle)
-    #     return end_array
+    def reboot(self):        
+        self.packetHandler_list[-1].factoryReset(self.portHandler_list[-1], 15, 0x02)
+        i = -1
+        if self.portHandler_list[i].openPort():
+            print("Succeeded to open the port | ", end="")
+        else:
+            print("Failed to open the port")
+            
+        if self.portHandler_list[i].setBaudRate(self.baudrate):
+            print("Succeeded to change the baudrate | ", end="")
+        else:
+            print("Failed to change the baudrate")
+        time.sleep(0.5)
+        dxl_comm_result, dxl_error = self.packetHandler_list[i].write1ByteTxRx(self.portHandler_list[i], self.DXL_ID_list[i], self.ADDR_TORQUE_ENABLE, self.TORQUE_ENABLE)
+        if dxl_comm_result != COMM_SUCCESS:
+            print("%s" % self.packetHandler_list[i].getTxRxResult(dxl_comm_result))
+        elif dxl_error != 0:
+            print("%s" % self.packetHandler_list[i].getRxPacketError(dxl_error))
+            # [RxPacketError] Hardware error occurred. Check the error at Control Table (Hardware Error Status)! (ID: 15)
+        else:
+            print("Dynamixel has been successfully connected")
+    
 
 
 
@@ -163,17 +177,6 @@ def getch():
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     return ch
 
-def ZOH(goal_arr, target_angle, target_angle_stack):
-    target_angle_stack.append(target_angle)
-    if len(target_angle_stack) > 5:
-        target_angle_stack.popleft()
-
-    for i in range(1, 4):
-        if abs(goal_arr[i] - target_angle[i]) > 400:
-            print('joint_limit')
-            return target_angle_stack[0]
-    return target_angle
-
 
 def predict_result(model, input_image):
     predicted_results = model(input_image, imgsz=640, conf = 0.7)[0]
@@ -187,7 +190,6 @@ def predict_result(model, input_image):
     return detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name
 
 
-# detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name 
 def draw_detect_object(input_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point):
     cv2.circle(input_image, goal_point, radius=5, color=(0, 0, 255), thickness=-1)
     cv2.circle(input_image, (int((x1+x2)/2), int((y1+y2)/2)), radius=5, color=(255, 0, 0), thickness=-1)
@@ -213,15 +215,17 @@ def moving_average(stack, element, step_size):
 
 def get_depth(x1, y1, x2, y2, depth_frame):
     # print(depth_frame.get_units())
-    print('depth', int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units()))
+    # print('depth', int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units()))
     return int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units())
+
+
 
 def main():
 
     camera = realsense()
     openmanipulator = OpenManipulator([11, 12, 13, 14, 15])
     openmanipulator.open_port_and_baud()
-    
+
     model = YOLO('../rsc/best_yolo8v_trash_n.pt')
 
     target_vector = [0.01399388  , 0.0, 0.00770011]
@@ -232,7 +236,7 @@ def main():
     grab_flag = False
     goal_point = (420,240)
     target_point = goal_point
-
+    openmanipulator.move_to_goal(dxl_goal_position)
     while True:
         # print(open_maipulator.forward_kinematics([(pos_to_angle(dxl_goal_position[i])-180)*np.pi/180 for i in range(5)]))
         color_image, depth_frame = camera.get_frame()
@@ -260,16 +264,18 @@ def main():
         if key_input == 27:
             break
         elif key_input == ord('e'):
+            
             if grab_flag:
+                print(dxl_goal_position)
                 dxl_goal_position[4] = angle_to_pos(240)
                 grab_flag = False
             else:
-                dxl_goal_position[4] = angle_to_pos(150)
+                dxl_goal_position[4] = angle_to_pos(100)
                 grab_flag = True
         elif key_input == ord('c'):
-            dxl_goal_position[0] += angle_to_pos(1)
+            dxl_goal_position[0] += angle_to_pos(10)
         elif key_input == ord('z'):
-            dxl_goal_position[0] -= angle_to_pos(1)
+            dxl_goal_position[0] -= angle_to_pos(10)
         elif key_input == ord('a'):
             target_vector[0] += 0.001
         elif key_input == ord('d'):
@@ -281,24 +287,30 @@ def main():
         elif key_input == ord('r'):
             target_vector = [0.01399388  , 0.0, 0.00770011]
             dxl_goal_position[0] = angle_to_pos(180)
-        
+        elif key_input == ord('t'):
+            openmanipulator.reboot()
+
         # dumping plastic
         elif key_input == ord('p'):
             dxl_goal_position[0] = angle_to_pos(180+90)
             openmanipulator.move_to_goal(dxl_goal_position)
-
+            print(dxl_goal_position)
+            time.sleep(0.5)
             target_vector = [0.030716  , 0.0, 0.023171]
-            dxl_goal_position[1:3] = openmanipulator.solve_ik(target_vector)
+            dxl_goal_position[1:4] = openmanipulator.solve_ik(target_vector)
             openmanipulator.move_to_goal(dxl_goal_position)
 
             dxl_goal_position[4] = angle_to_pos(100)
-            time.sleep(0.5)
+            time.sleep(1)
             openmanipulator.move_to_goal(dxl_goal_position)
+            time.sleep(1)
+            target_vector = [0.01399388  , 0.0, 0.00770011]
+            dxl_goal_position[0] = angle_to_pos(180)
             
-        
-        dxl_goal_position[1:3] = openmanipulator.solve_ik(target_vector)
+        dxl_goal_position[1:4] = openmanipulator.solve_ik(target_vector)
         openmanipulator.move_to_goal(dxl_goal_position)
         
+    print(dxl_goal_position)
     openmanipulator.kill_process()
     camera.off()
 
