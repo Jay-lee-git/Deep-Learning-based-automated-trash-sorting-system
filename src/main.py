@@ -126,16 +126,6 @@ class OpenManipulator():
             print("Dynamixel has been successfully connected")
     
 
-    def move_grab_point(self, dxl_goal_position):
-        self.target_vector[0] += 0.015
-        dxl_goal_position[1:4] = self.solve_ik()
-        self.move_to_goal(dxl_goal_position)
-        time.sleep(1)
-        # grab
-        self.grab_close(dxl_goal_position)
-        self.move_to_goal(dxl_goal_position)
-
-
     def dump(self, dxl_goal_position, angle):
         # move to grab point
         self.target_vector[0] += 0.015
@@ -143,8 +133,8 @@ class OpenManipulator():
         self.move_to_goal(dxl_goal_position)
         time.sleep(1)
 
-        # grab close
-        self.grab_close(dxl_goal_position)
+        # grab
+        self.gripper_close(dxl_goal_position)
 
 
         # lift in z axis
@@ -168,30 +158,28 @@ class OpenManipulator():
         self.target_vector[0] += 0.015
         dxl_goal_position[1:4] = self.solve_ik()
         self.move_to_goal(dxl_goal_position)
-        time.sleep(0.75)
+        time.sleep(1)
 
         # grab open
-        self.grab_open(dxl_goal_position)
+        self.gripper_open(dxl_goal_position)
         time.sleep(0.5)
-        return self.home(dxl_goal_position)
 
-
-        
-    
-    def home(self, dxl_goal_position):
+        # home position
         self.target_vector = [0.01399388  , 0.0, 0.00770011]
-        dxl_goal_position[0] = angle_to_pos(180)
         dxl_goal_position[1:4] = self.solve_ik()
         self.move_to_goal(dxl_goal_position)
-        return dxl_goal_position
+        time.sleep(0.5)
 
+        dxl_goal_position[0] = angle_to_pos(180)
+        self.move_to_goal(dxl_goal_position)
+        return dxl_goal_position
     
-    def grab_open(self, dxl_goal_position):
+    def gripper_open(self, dxl_goal_position):
         dxl_goal_position[4] = angle_to_pos(100)
         self.move_to_goal(dxl_goal_position)
         time.sleep(2)
 
-    def grab_close(self, dxl_goal_position):
+    def gripper_close(self, dxl_goal_position):
         dxl_goal_position[4] = angle_to_pos(280)
         self.move_to_goal(dxl_goal_position)
         time.sleep(2)
@@ -208,25 +196,18 @@ class realsense():
 
     def get_frame(self):
         frames = self.pipeline.wait_for_frames()
-        
         color_frame = frames.get_color_frame()
-        depth_frame = frames.get_depth_frame()
-
         color_image = np.asanyarray(color_frame.get_data())
-
-        return color_image, depth_frame
+        return color_image
     
     def off(self):    
         self.pipeline.stop()
-        # cap.release()
         cv2.destroyAllWindows()
 
 
 def angle_to_pos(angle):
     return int(4095/360 * angle)
 
-def pos_to_angle(pos):
-    return int(pos*360 /4095)
     
 def getch():
     fd = sys.stdin.fileno()
@@ -268,24 +249,14 @@ def draw_detect_object(input_image, x1, y1, x2, y2, detect_name, detect_ob_num, 
 
 
 
-def moving_average(stack, element, step_size):
-    stack.append(element)
-    if len(stack) > step_size:
-        stack.popleft()
-    return sum(stack)/step_size
-
-def get_depth(x1, y1, x2, y2, depth_frame):
-    return int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units())
-
 def target_lock(deque, dx):
+    NUM = 10
     deque.append(dx)
-
-    if len(deque) > 10:
+    if len(deque) > NUM:
         deque.popleft()
-    
-    if abs(sum(deque))//10 < 5 and len(deque) == 10:
-        print(deque)
+    if abs(sum(deque))//NUM < 10 and len(deque) == NUM:
         return True
+    return False
 
 
 def main():
@@ -293,31 +264,24 @@ def main():
     openmanipulator = OpenManipulator([11, 12, 13, 14, 15])
     openmanipulator.open_port_and_baud()
 
-    model = YOLO('../rsc/best_yolo8v_trash_x.pt')
+    model = YOLO('./rsc/best_yolo8v_trash_x.pt')
 
-    dxl_goal_position = [angle_to_pos(180), *openmanipulator.solve_ik(), angle_to_pos(100)]
-    mid_point_list = [deque() for _ in range(2)]
-    average_step_size = 5
     target_lock_arr = deque()
     target_lock_bool = False
     target_lock_name = None
 
-    grab_flag = False
-    goal_point = (420,240)
+    goal_point = (420, 240)
     target_point = goal_point
+
+    dxl_goal_position = [angle_to_pos(180), *openmanipulator.solve_ik(), angle_to_pos(100)]
     openmanipulator.move_to_goal(dxl_goal_position)
     while True:
-        color_image, depth_frame = camera.get_frame()
-        # 480,640
-        frame_height, frame_width, _ = color_image.shape
-        frame_mid_point = (frame_width//2, frame_height//2)
-
+        color_image = camera.get_frame()
         # predict
         detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name = predict_result(model, color_image)
 
         if detect_ob_cordinate and target_lock_bool == False:
             x1, y1, x2, y2 = map(int, detect_ob_cordinate[0])
-            moving_average(mid_point_list[0], (frame_mid_point[0] - int((x1+x2)/2)), average_step_size)
             target_point = draw_detect_object(color_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point)
             dx = target_point[0] - goal_point[0]
             # move to target
@@ -325,6 +289,7 @@ def main():
                 dxl_goal_position[0] -= angle_to_pos(0.5)
             elif dx < -10:
                 dxl_goal_position[0] += angle_to_pos(0.5)
+
             if target_lock(target_lock_arr, dx):
                 target_lock_bool = True
                 target_lock_name = detect_name[detect_ob_num[0]]
@@ -332,19 +297,13 @@ def main():
             
         if target_lock_bool:
             if target_lock_name == 'pet':
-                dxl_goal_position = openmanipulator.dump(dxl_goal_position, -50)
-            
+                dxl_goal_position = openmanipulator.dump(dxl_goal_position, -50)            
             elif target_lock_name == 'paper':
                 dxl_goal_position = openmanipulator.dump(dxl_goal_position, -90)
-
-
             elif target_lock_name == 'can':
                 dxl_goal_position = openmanipulator.dump(dxl_goal_position, 50)
-                 
-
             elif target_lock_name == 'glass_bottle':
                 dxl_goal_position = openmanipulator.dump(dxl_goal_position, 90)
-
 
             target_lock_bool = False
             target_lock_arr = deque()
@@ -354,36 +313,6 @@ def main():
         key_input = cv2.waitKey(1)
         if key_input == 27:
             break
-        elif key_input == ord('e'):
-            
-            if grab_flag:
-                openmanipulator.grab_close(dxl_goal_position)
-                grab_flag = False
-            else:
-                openmanipulator.grab_open(dxl_goal_position)
-                grab_flag = True
-        # elif key_input == ord('c'):
-        #     dxl_goal_position[0] += angle_to_pos(10)
-        # elif key_input == ord('z'):
-        #     dxl_goal_position[0] -= angle_to_pos(10)
-        # elif key_input == ord('a'):
-        #     openmanipulator.target_vector[0] += 0.001
-        #     # 15번 = 0.015
-        # elif key_input == ord('d'):
-        #     openmanipulator.target_vector[0] -= 0.001
-        # elif key_input == ord('w'):
-        #     openmanipulator.target_vector[2] += 0.001
-        # elif key_input == ord('s'):
-        #     openmanipulator.target_vector[2] -= 0.001
-        # elif key_input == ord('r'):
-        #     openmanipulator.target_vector = [0.01399388  , 0.0, 0.00770011]
-        #     dxl_goal_position[0] = angle_to_pos(180)
-        # elif key_input == ord('t'):
-        #     openmanipulator.reboot()
-
-        # dumping plastic
-        elif key_input == ord('p'):
-            dxl_goal_position = openmanipulator.dump(dxl_goal_position, 90)
 
 
         dxl_goal_position[1:4] = openmanipulator.solve_ik()
