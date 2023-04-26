@@ -31,7 +31,9 @@ The code is tested successfully at
 ## Requirements
 
 ### YOLOv8 Setting
-- Install YOLOv8 on a machine by [ultralytics](https://github.com/ultralytics/ultralytics) git link
+- Install YOLOv8 on a machine by [ultralytics](https://github.com/ultralytics/ultralytics) git link  
+can download our pre-trained model from 
+[google drive](https://drive.google.com/drive/folders/10B1QtBIygWs_4QKmppJ5hgpm90IWSYGR?usp=sharing)
 
 ### Dynamixel Setting
 - Install pip install dynamixel-sdk
