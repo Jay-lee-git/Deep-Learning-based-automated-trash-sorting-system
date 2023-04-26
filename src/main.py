@@ -51,7 +51,7 @@ open_maipulator = Chain(name='test_arm', links=[
 ])
 
 
-class DynamixelControl:
+class OpenManipulator():
     def __init__(self, DXL_ID_list):
         self.DEVICENUM = 5
         self.DXL_MOVING_STATUS_THRESHOLD = 60
@@ -115,6 +115,34 @@ class DynamixelControl:
                 self.move_to_goal(target_angle)
         return end_array
 
+
+
+class realsense():
+    def __init__(self):
+        self.pipeline = rs.pipeline()
+        self.config = rs.config()
+
+        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        
+        self.pipeline.start(self.config)
+
+    def get_frame(self):
+        frames = self.pipeline.wait_for_frames()
+        
+        color_frame = frames.get_color_frame()
+        depth_frame = frames.get_depth_frame()
+
+        color_image = np.asanyarray(color_frame.get_data())
+
+        return color_image, depth_frame
+    
+    def off(self):    
+        self.pipeline.stop()
+        # cap.release()
+        cv2.destroyAllWindows()
+
+
 def angle_to_pos(angle):
     return int(4095/360 * angle)
 
@@ -142,27 +170,6 @@ def ZOH(goal_arr, target_angle, target_angle_stack):
             return target_angle_stack[0]
     return target_angle
 
-
-def realsense_on():
-    pipeline = rs.pipeline()
-    config = rs.config()
-
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-    
-    pipeline.start(config)
-
-    return pipeline
-
-def get_realsense_color_depth_frame(pipeline):
-    frames = pipeline.wait_for_frames()
-    
-    color_frame = frames.get_color_frame()
-    depth_frame = frames.get_depth_frame()
-
-    color_image = np.asanyarray(color_frame.get_data())
-
-    return color_image, depth_frame
 
 def predict_result(model, input_image):
     predicted_results = model(input_image, imgsz=640, conf = 0.7)[0]
@@ -196,23 +203,30 @@ def camera_off(pipeline):
     cv2.destroyAllWindows()
 
 
+def get_depth(x1, y1, x2, y2, depth_frame):
+    # print(depth_frame.get_units())
+    print('depth', int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units()))
+    return int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units())
+
 def main():
     target_vector = [0.01399388  , 0.0, 0.00770011]
     dxl_goal_position = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
     dxl_goal_position[0], dxl_goal_position[4] = angle_to_pos(180), angle_to_pos(100)
-    pipeline = realsense_on()
-    model = YOLO('rsc/best_yolo8v_trash_x.pt')
-    mid_point_list = [deque([]) for _ in range(2)]
+
+    camera = realsense()
+    openmanipulator = OpenManipulator([11, 12, 13, 14, 15])
+
+    model = YOLO('../rsc/best_yolo8v_trash_x.pt')
+    mid_point_list = [deque() for _ in range(2)]
     average_step_size = 5
 
-    dynamixel = DynamixelControl([11, 12, 13, 14, 15])
-    dynamixel.open_port_and_baud()
+    openmanipulator.open_port_and_baud()
     grab_flag = False
     goal_point = (420,240)
     target_point = goal_point
     while True:
         print(open_maipulator.forward_kinematics([(pos_to_angle(dxl_goal_position[i])-180)*np.pi/180 for i in range(5)]))
-        color_image, _ = get_realsense_color_depth_frame(pipeline)
+        color_image, depth_frame = camera.get_frame()
         frame_height, frame_width, _ = color_image.shape
         frame_mid_point = (frame_height//2, frame_width//2)
 
@@ -230,13 +244,16 @@ def main():
                 mid_point_list[1].popleft()
             target_point = draw_detect_object(color_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point)
 
+            # move to target
+            if (target_point[0] - goal_point[0]) > 10:
+                dxl_goal_position[0] -= angle_to_pos(0.5)
+            elif (target_point[0] - goal_point[0]) < -10:
+                dxl_goal_position[0] += angle_to_pos(0.5)
+            # get_depth(x1, y1, x2, y2, depth_frame)
+
+
         cv2.imshow('Color frame', color_image)
 
-        if (target_point[0] - goal_point[0]) > 10:
-            dxl_goal_position[0] -= angle_to_pos(0.5)
-        elif (target_point[0] - goal_point[0]) < -10:
-            dxl_goal_position[0] += angle_to_pos(0.5)
-        
 
         key_input = cv2.waitKey(1)
         if key_input == 27:
@@ -267,25 +284,25 @@ def main():
         # dumping plastic
         elif key_input == ord('p'):
             dxl_goal_position[0] = angle_to_pos(180+90)
-            dynamixel.move_to_goal(dxl_goal_position)
+            openmanipulator.move_to_goal(dxl_goal_position)
 
-            # dynamixel.increment_array(target_vector, [0.0268435  , 0.0, 0.01415466], 5)
+            # openmanipulator.increment_array(target_vector, [0.0268435  , 0.0, 0.01415466], 5)
             target_vector = [0.030716  , 0.0, 0.023171]
             target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
-            dynamixel.move_to_goal(dxl_goal_position)
+            openmanipulator.move_to_goal(dxl_goal_position)
             dxl_goal_position[4] = angle_to_pos(100)
-            dynamixel.move_to_goal(dxl_goal_position)
+            openmanipulator.move_to_goal(dxl_goal_position)
             
 
         target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
         
         for i in range(1, 4):
             dxl_goal_position[i] = target_angle[i]        
-        dynamixel.move_to_goal(dxl_goal_position)
+        openmanipulator.move_to_goal(dxl_goal_position)
         
 
-    dynamixel.kill_process()
-    camera_off(pipeline)
+    openmanipulator.kill_process()
+    camera.off()
 
 
 if __name__ == '__main__':
