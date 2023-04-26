@@ -275,6 +275,9 @@ def main():
 
     dxl_goal_position = [angle_to_pos(180), *openmanipulator.solve_ik(), angle_to_pos(100)]
     openmanipulator.move_to_goal(dxl_goal_position)
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter('output.avi', fourcc, 30.0, (640, 480))    
+
     while True:
         color_image = camera.get_frame()
         # predict
@@ -308,7 +311,7 @@ def main():
             target_lock_bool = False
             target_lock_arr = deque()
 
-
+        out.write(color_image)
         cv2.imshow('Color frame', color_image)
         key_input = cv2.waitKey(1)
         if key_input == 27:
@@ -320,6 +323,7 @@ def main():
         
     openmanipulator.kill_process()
     camera.off()
+    out.release()
 
 
 if __name__ == '__main__':
