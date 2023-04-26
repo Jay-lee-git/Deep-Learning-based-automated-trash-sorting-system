@@ -102,18 +102,22 @@ class OpenManipulator():
             dxl_comm_result, dxl_error = self.packetHandler_list[i].write1ByteTxRx(self.portHandler_list[i], self.DXL_ID_list [i], self.ADDR_TORQUE_ENABLE, self.TORQUE_DISABLE)
             self.portHandler_list[i].closePort()
 
-    def increment_array(self, start_array, end_array, time_period):
-        rate_of_change = [(end_array[i] - start_array[i]) / time_period for i in range(len(start_array))]
-        current_array = start_array.copy()
-        increment_time = time_period / 5
-        for i in range(5):
-            current_array = [current_array[j] + rate_of_change[j] * increment_time for j in range(len(current_array))]
-            print(current_array)
-            time.sleep(increment_time)
-            target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(current_array)*180/np.pi]
-            for i in range(1, 4):      
-                self.move_to_goal(target_angle)
-        return end_array
+    def solve_ik(self, target_vector):
+        return [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi][1:4]
+    
+# dxl_goal_position[i] = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
+    # def increment_array(self, start_array, end_array, time_period):
+    #     rate_of_change = [(end_array[i] - start_array[i]) / time_period for i in range(len(start_array))]
+    #     current_array = start_array.copy()
+    #     increment_time = time_period / 5
+    #     for i in range(5):
+    #         current_array = [current_array[j] + rate_of_change[j] * increment_time for j in range(len(current_array))]
+    #         print(current_array)
+    #         time.sleep(increment_time)
+    #         target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(current_array)*180/np.pi]
+    #         for i in range(1, 4):      
+    #             self.move_to_goal(target_angle)
+    #     return end_array
 
 
 
@@ -181,6 +185,8 @@ def predict_result(model, input_image):
     detect_ob_cordinate = predicted_results.boxes.xyxy.tolist()
 
     return detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name
+
+
 # detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name 
 def draw_detect_object(input_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point):
     cv2.circle(input_image, goal_point, radius=5, color=(0, 0, 255), thickness=-1)
@@ -197,11 +203,13 @@ def draw_detect_object(input_image, x1, y1, x2, y2, detect_name, detect_ob_num, 
     print('x : ', goal_point[0] - int((x1+x2)/2), 'y : ', goal_point[1]- int((y1+y2)/2))
     return (int((x1+x2)/2), int((y1+y2)/2))
 
-def camera_off(pipeline):
-    pipeline.stop()
-    # cap.release()
-    cv2.destroyAllWindows()
 
+
+def moving_average(stack, element, step_size):
+    stack.append(element)
+    if len(stack) > step_size:
+        stack.popleft()
+    return sum(stack)/step_size
 
 def get_depth(x1, y1, x2, y2, depth_frame):
     # print(depth_frame.get_units())
@@ -209,39 +217,36 @@ def get_depth(x1, y1, x2, y2, depth_frame):
     return int(depth_frame.get_distance(int((x1+x2)/2), int((y1+y2)/2)) / depth_frame.get_units())
 
 def main():
-    target_vector = [0.01399388  , 0.0, 0.00770011]
-    dxl_goal_position = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
-    dxl_goal_position[0], dxl_goal_position[4] = angle_to_pos(180), angle_to_pos(100)
 
     camera = realsense()
     openmanipulator = OpenManipulator([11, 12, 13, 14, 15])
+    openmanipulator.open_port_and_baud()
+    
+    model = YOLO('../rsc/best_yolo8v_trash_n.pt')
 
-    model = YOLO('../rsc/best_yolo8v_trash_x.pt')
+    target_vector = [0.01399388  , 0.0, 0.00770011]
+    dxl_goal_position = [angle_to_pos(180), *openmanipulator.solve_ik(target_vector), angle_to_pos(100)]
     mid_point_list = [deque() for _ in range(2)]
     average_step_size = 5
 
-    openmanipulator.open_port_and_baud()
     grab_flag = False
     goal_point = (420,240)
     target_point = goal_point
+
     while True:
-        print(open_maipulator.forward_kinematics([(pos_to_angle(dxl_goal_position[i])-180)*np.pi/180 for i in range(5)]))
+        # print(open_maipulator.forward_kinematics([(pos_to_angle(dxl_goal_position[i])-180)*np.pi/180 for i in range(5)]))
         color_image, depth_frame = camera.get_frame()
+        # 480,640
         frame_height, frame_width, _ = color_image.shape
-        frame_mid_point = (frame_height//2, frame_width//2)
+        frame_mid_point = (frame_width//2, frame_height//2)
+
 
         # predict
         detect_ob_num, detect_ob_percentage, detect_ob_cordinate, detect_name = predict_result(model, color_image)
 
         if detect_ob_cordinate:
             x1, y1, x2, y2 = map(int, detect_ob_cordinate[0])
-
-            mid_point_list[0].append(frame_mid_point[0] - int((x1+x2)/2))
-            mid_point_list[1].append(frame_mid_point[1] - int((y1+y2)/2))
-            # pop the first element if it more than step_size
-            if len(mid_point_list[0]) > average_step_size:
-                mid_point_list[0].popleft()
-                mid_point_list[1].popleft()
+            moving_average(mid_point_list[0], frame_mid_point[0] - int((x1+x2)/2), average_step_size)
             target_point = draw_detect_object(color_image, x1, y1, x2, y2, detect_name, detect_ob_num, detect_ob_percentage, goal_point)
 
             # move to target
@@ -249,12 +254,8 @@ def main():
                 dxl_goal_position[0] -= angle_to_pos(0.5)
             elif (target_point[0] - goal_point[0]) < -10:
                 dxl_goal_position[0] += angle_to_pos(0.5)
-            # get_depth(x1, y1, x2, y2, depth_frame)
-
 
         cv2.imshow('Color frame', color_image)
-
-
         key_input = cv2.waitKey(1)
         if key_input == 27:
             break
@@ -263,7 +264,7 @@ def main():
                 dxl_goal_position[4] = angle_to_pos(240)
                 grab_flag = False
             else:
-                dxl_goal_position[4] = angle_to_pos(100)
+                dxl_goal_position[4] = angle_to_pos(150)
                 grab_flag = True
         elif key_input == ord('c'):
             dxl_goal_position[0] += angle_to_pos(1)
@@ -286,21 +287,18 @@ def main():
             dxl_goal_position[0] = angle_to_pos(180+90)
             openmanipulator.move_to_goal(dxl_goal_position)
 
-            # openmanipulator.increment_array(target_vector, [0.0268435  , 0.0, 0.01415466], 5)
             target_vector = [0.030716  , 0.0, 0.023171]
-            target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
+            dxl_goal_position[1:3] = openmanipulator.solve_ik(target_vector)
             openmanipulator.move_to_goal(dxl_goal_position)
+
             dxl_goal_position[4] = angle_to_pos(100)
+            time.sleep(0.5)
             openmanipulator.move_to_goal(dxl_goal_position)
             
-
-        target_angle = [angle_to_pos(i+180) for i in open_maipulator.inverse_kinematics(target_vector)*180/np.pi]
         
-        for i in range(1, 4):
-            dxl_goal_position[i] = target_angle[i]        
+        dxl_goal_position[1:3] = openmanipulator.solve_ik(target_vector)
         openmanipulator.move_to_goal(dxl_goal_position)
         
-
     openmanipulator.kill_process()
     camera.off()
 
